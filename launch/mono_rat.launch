@@ -1,0 +1,5 @@
+<launch>
+  <node pkg="mono_rat_viso" type="mono_rat_viso" name="rat_o_meter" output="screen">
+    <rosparam file="$(find mono_rat_viso)/params/mono_rat.yaml"/>
+  </node>
+</launch>

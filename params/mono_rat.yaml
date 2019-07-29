@@ -1,0 +1,36 @@
+base_footprint_frame: base_footprint
+broadcast_tf: false
+
+# filters
+linear_highpass_cutoff:   0.01
+linear_lowpass_cutoff:    15.0
+angular_lowpass_cutoff:  100.0
+
+# camera
+subscribe_to_info: false
+image_width: 640
+camera_fov_degrees: 75.0 # PS3
+
+# region of interest for translation
+trans_roi_x_min: 0
+trans_roi_x_max: 640
+trans_roi_y_min: 0 #240
+trans_roi_y_max: 480
+
+# region of interest for rotation
+rot_roi_x_min: 0
+rot_roi_x_max: 640
+rot_roi_y_min: 0 #240
+rot_roi_y_max: 480
+
+# integration and scale
+reset_by_cmd_vel: true
+reset_lin_vel: 0.05
+vtrans_lin_scale: 25 #220
+vtrans_rot_scale: 20 #200
+cal_odom_scale: false
+cal_odom_topic: odom
+
+# base
+max_angular_vel: 2.0
+max_linear_vel:  0.35
