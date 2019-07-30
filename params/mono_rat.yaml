@@ -1,36 +1,36 @@
 base_footprint_frame: base_footprint
+transform_odom: false # transform camera velocities to footprint
 broadcast_tf: false
 
 # filters
-linear_highpass_cutoff:   0.01
-linear_lowpass_cutoff:    15.0
-angular_lowpass_cutoff:  100.0
+linear_highpass_cutoff:   0.01 # m/s
+linear_lowpass_cutoff:    15.0 # Hz
+angular_lowpass_cutoff:  100.0 # Hz
 
 # camera
+camera_topic: head_camera/image_rect
+camera_info_topic: head_camera/camera_info
 subscribe_to_info: false
-image_width: 640
-camera_fov_degrees: 75.0 # PS3
+image_width: 640 # provide if subscribe_to_info is set to false
+camera_fov_degrees: 75.0 # horizontal field of view
 
 # region of interest for translation
-trans_roi_x_min: 0
-trans_roi_x_max: 640
-trans_roi_y_min: 0 #240
+trans_roi_x_min: 0    # top left corner
+trans_roi_y_min: 240
+trans_roi_x_max: 640  # bottom right corner
 trans_roi_y_max: 480
 
 # region of interest for rotation
-rot_roi_x_min: 0
-rot_roi_x_max: 640
-rot_roi_y_min: 0 #240
+rot_roi_x_min: 0    # top left corner
+rot_roi_y_min: 240
+rot_roi_x_max: 640  # bottom right corner
 rot_roi_y_max: 480
 
 # integration and scale
-reset_by_cmd_vel: true
-reset_lin_vel: 0.05
-vtrans_lin_scale: 25 #220
-vtrans_rot_scale: 20 #200
-cal_odom_scale: false
-cal_odom_topic: odom
-
-# base
-max_angular_vel: 2.0
+reset_by_cmd_vel: true  # cmd_vel resets and constrains integrator
+max_angular_vel: 2.0    # base maximum velocities used if reset_by_cmd_vel is set to false
 max_linear_vel:  0.35
+reset_lin_vel: 0.05     # resets integrator belov threhsold if reset_by_cmd_vel is set to false
+
+vtrans_lin_scale: 220   # scale of linear velocity when there is no rotation
+vtrans_rot_scale: 200   # scale of linear velocity when there is rotation

@@ -4,6 +4,7 @@
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <tf/transform_listener.h>
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_datatypes.h>
 #include <geometry_msgs/Point.h>
@@ -11,20 +12,21 @@
 
 using namespace std;
 
-nav_msgs::Odometry odom;
 tf::Quaternion q;
-std::string base_footprint_frame;
+tf::TransformListener* pListener = NULL;
 tf::TransformBroadcaster* odom_broadcaster = NULL;
 ros::Publisher odom_pub;
 ros::Time current_time;
 ros::Time last_time;
+geometry_msgs::Point position;
+nav_msgs::Odometry odom;
+
+std::string base_footprint_frame;
 
 std::vector<double> translation_intensity_profile;
 std::vector<double> prev_translation_intensity_profile;
 std::vector<double> rotation_intensity_profile;
 std::vector<double> prev_rotation_intensity_profile;
-
-geometry_msgs::Point position;
 
 int image_width;
 
@@ -40,20 +42,19 @@ int rot_roi_y_max;
 
 bool gotCamInfo = false;
 bool gotImage   = false;
-bool gotOdom    = false;
 bool broadcast_tf;
-bool cal_odom_scale;
+bool transform_odom;
 bool reset_by_cmd_vel;
 
 double yaw;
 
 double image_freq;
-double vtrans_scale, vtrans_lin_scale, vtrans_rot_scale;
 double camera_fov_degrees;
+double vtrans_scale, vtrans_lin_scale, vtrans_rot_scale;
 double prev_linear_velocity, prev_angular_velocity;
 double linear_velocity, angular_velocity;
+double angular_lowpass_cutoff;
 double linear_highpass_cutoff, linear_lowpass_cutoff;
-double angular_highpass_cutoff, angular_lowpass_cutoff;
 double linear_lowpass_coefficient, angular_lowpass_coefficient;
 double max_angular_vel, max_linear_vel, reset_lin_vel;
 
@@ -179,12 +180,6 @@ void cmdCallback(const geometry_msgs::Twist &c){
   cmd_vel = c;
 }
 
-nav_msgs::Odometry reference_odom;
-void odomCallBack(const nav_msgs::Odometry &odom){
-  reference_odom = odom;
-  gotOdom = true;
-}
-
 void camInfoCallback(const sensor_msgs::CameraInfo info)
 {
   image_width = info.width;
@@ -238,6 +233,19 @@ void imageCallback(const sensor_msgs::ImageConstPtr& image)
   prev_angular_velocity = angular_velocity;
   q = tf::createQuaternionFromYaw(yaw);
 
+  if (transform_odom){
+    tf::StampedTransform base_cam_offset;
+    tf::Transform cam_frame_tf = tf::Transform(q, tf::Vector3(0,0,0));
+    pListener->waitForTransform(base_footprint_frame, image->header.frame_id, current_time, ros::Duration(0.1));
+    pListener->lookupTransform(base_footprint_frame, image->header.frame_id,  current_time, base_cam_offset);
+    cam_frame_tf = cam_frame_tf * base_cam_offset;
+    tf::Matrix3x3 base_cam_rot_mat(base_cam_offset.getRotation());
+    tf::Vector3 cam_angular_velocity(0,0,angular_velocity);
+    tf::Vector3 cam_linear_velocity(linear_velocity,0,0);
+    tf::Vector3 cam_angular_velocity_base = base_cam_rot_mat * cam_angular_velocity;
+    tf::Vector3 cam_linear_velocity_base  = base_cam_rot_mat * cam_linear_velocity;
+  }
+
   // integrating forward position
   double ds = (linear_velocity+prev_linear_velocity) * dt/2;
   prev_linear_velocity = linear_velocity;
@@ -279,67 +287,45 @@ int main(int argc, char * argv[])
   ros::NodeHandle nhLocal("~");
 
   std::string camera_topic, camera_info;
-  nhLocal.param("camera_rectified_topic", camera_topic, std::string("/head_camera/image_rect"));
-  nhLocal.param("camera_info_topic", camera_info, std::string("/head_camera/camera_info"));
   image_transport::ImageTransport it(nh);
+  ros::Subscriber cmd_sub;
+  ros::Subscriber camInfoSub;
+  bool subscribe_to_info;
+
+  nhLocal.param("camera_topic",             camera_topic,             std::string("/head_camera/image_rect"));
+  nhLocal.param("camera_info_topic",        camera_info,              std::string("/head_camera/camera_info"));
+  nhLocal.param("base_footprint_frame",     base_footprint_frame,     std::string("rat_o_meter"));
+  nhLocal.param("linear_highpass_cutoff",   linear_highpass_cutoff,   5.0);
+  nhLocal.param("linear_lowpass_cutoff",    linear_lowpass_cutoff,    15.0);
+  nhLocal.param("angular_lowpass_cutoff",   angular_lowpass_cutoff,   15.0);
+  nhLocal.param("camera_fov_degrees",       camera_fov_degrees,       75.0);
+  nhLocal.param("image_width",              image_width,              640);
+  nhLocal.param("trans_roi_x_min",          trans_roi_x_min,          0);
+  nhLocal.param("trans_roi_x_max",          trans_roi_x_max,          640);
+  nhLocal.param("trans_roi_y_min",          trans_roi_y_min,          0);
+  nhLocal.param("trans_roi_y_max",          trans_roi_y_max,          480);
+  nhLocal.param("rot_roi_x_min",            rot_roi_x_min,            0);
+  nhLocal.param("rot_roi_x_max",            rot_roi_x_max,            640);
+  nhLocal.param("rot_roi_y_min",            rot_roi_y_min,            0);
+  nhLocal.param("rot_roi_y_max",            rot_roi_y_max,            480);
+  nhLocal.param("vtrans_lin_scale",         vtrans_lin_scale,         75.0);
+  nhLocal.param("vtrans_rot_scale",         vtrans_rot_scale,         25.0);
+  nhLocal.param("max_linear_vel",           max_linear_vel,           0.35);
+  nhLocal.param("max_angular_vel",          max_angular_vel,          2.0);
+  nhLocal.param("broadcast_tf",             broadcast_tf,             false);
+  nhLocal.param("transform_odom",           transform_odom,           false);
+  nhLocal.param("reset_lin_vel",            reset_lin_vel,            0.05);
+  nhLocal.param("subscribe_to_info",        subscribe_to_info,        true);
+  nhLocal.param("reset_by_cmd_vel",         reset_by_cmd_vel,         true);
+
   image_transport::Subscriber camera = it.subscribe(camera_topic, 2, imageCallback);
 
+  if (transform_odom) pListener = new (tf::TransformListener);
   odom_broadcaster = new(tf::TransformBroadcaster);
   odom_pub = nh.advertise<nav_msgs::Odometry>("/viso/odom", 10);
-  ros::Subscriber cmd_sub;
 
-  nhLocal.param("base_footprint_frame", base_footprint_frame, std::string("rat_o_meter"));
-
-  nhLocal.param("linear_highpass_cutoff",  linear_highpass_cutoff,  5.0);
-  nhLocal.param("linear_lowpass_cutoff",   linear_lowpass_cutoff,   15.0);
-  nhLocal.param("angular_highpass_cutoff", angular_highpass_cutoff, 10.0); // not in use
-  nhLocal.param("angular_lowpass_cutoff",  angular_lowpass_cutoff,  15.0);
-
-  nhLocal.param("camera_fov_degrees", camera_fov_degrees, 75.0); // PS3
-
-  nhLocal.param("image_width",        image_width, 640);
-
-  nhLocal.param("trans_roi_x_min",    trans_roi_x_min, 0);
-  nhLocal.param("trans_roi_x_max",    trans_roi_x_max, 640);
-  nhLocal.param("trans_roi_y_min",    trans_roi_y_min, 0);
-  nhLocal.param("trans_roi_y_max",    trans_roi_y_max, 480);
-
-  nhLocal.param("rot_roi_x_min",      rot_roi_x_min, 0);
-  nhLocal.param("rot_roi_x_max",      rot_roi_x_max, 640);
-  nhLocal.param("rot_roi_y_min",      rot_roi_y_min, 0);
-  nhLocal.param("rot_roi_y_max",      rot_roi_y_max, 480);
-
-  nhLocal.param("vtrans_lin_scale",   vtrans_lin_scale, 75.0);
-  nhLocal.param("vtrans_rot_scale",   vtrans_rot_scale, 25.0);
-
-  nhLocal.param("max_linear_vel",     max_linear_vel,  0.35);
-  nhLocal.param("max_angular_vel",    max_angular_vel, 2.0);
-
-  nhLocal.param("broadcast_tf",   broadcast_tf,   false);
-  nhLocal.param("cal_odom_scale", cal_odom_scale, false);
-
-  nhLocal.param("reset_lin_vel",    reset_lin_vel, 0.05);
-  nhLocal.param("reset_by_cmd_vel", reset_by_cmd_vel, true);
   if (reset_by_cmd_vel) cmd_sub = nh.subscribe("/cmd_vel", 100, cmdCallback);
 
-  std::string cal_odom_topic;
-  ros::Subscriber ref_odom_sub;
-  nhLocal.param("cal_odom_topic", cal_odom_topic, std::string("/odom"));
-
-  if (cal_odom_scale) {
-    ROS_INFO("Waiting for odometry...");
-    ref_odom_sub = nh.subscribe(cal_odom_topic, 1, odomCallBack);
-    while (nh.ok()&&!gotOdom) {
-      ros::spinOnce();
-    }
-    position = reference_odom.pose.pose.position;
-    tf::quaternionMsgToTF(reference_odom.pose.pose.orientation, q);
-    yaw = getYaw(q);
-  }
-
-  bool subscribe_to_info;
-  ros::Subscriber camInfoSub;
-  nhLocal.param("subscribe_to_info",subscribe_to_info,true);
   if (subscribe_to_info){
     ROS_INFO("Waiting for camera_info...");
     camInfoSub = nh.subscribe(camera_info, 1, camInfoCallback);
