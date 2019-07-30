@@ -42,9 +42,9 @@ int rot_roi_y_max;
 
 bool gotCamInfo = false;
 bool gotImage   = false;
-bool broadcast_tf;
-bool transform_odom;
 bool reset_by_cmd_vel;
+bool transform_odom;
+bool broadcast_tf;
 
 double yaw;
 
@@ -175,6 +175,10 @@ void visual_odo(double *current_profile, unsigned short width, double *previous_
   *vtrans_ms = mindiff * *vtrans_scale;
 }
 
+double constrain(double in, double lower, double upper) {
+  return std::max(lower, std::min(in, upper));
+}
+
 geometry_msgs::Twist cmd_vel;
 void cmdCallback(const geometry_msgs::Twist &c){
   cmd_vel = c;
@@ -207,26 +211,26 @@ void imageCallback(const sensor_msgs::ImageConstPtr& image)
     linear_lowpass_coefficient   = 1-exp(-dt * linear_lowpass_cutoff);
     angular_lowpass_coefficient  = 1-exp(-dt * angular_lowpass_cutoff);
   }
+
   // lowpass
   angular_velocity += (rotation - angular_velocity) * angular_lowpass_coefficient;
   linear_velocity  += (translation - linear_velocity) * linear_lowpass_coefficient;
+
   // highpass
   if (linear_velocity < linear_highpass_cutoff) linear_velocity = 0;
-  // constrains
-  if (linear_velocity > max_linear_vel) linear_velocity = max_linear_vel;
 
   // change scale on turns as translation is sensitive to rotation
   if (fabs(angular_velocity)>=0) vtrans_scale = vtrans_rot_scale; else vtrans_scale = vtrans_lin_scale;
 
   // stop integration if no command issued
   if (reset_by_cmd_vel){
-    if ( fabs(cmd_vel.linear.x)<=reset_lin_vel ){
-      linear_velocity = 0;
-    }
-    if ( cmd_vel.linear.x<0 ){ // the optical method does not support reversing yet
-      linear_velocity *= -1.0;
-    }
+    if (fabs(cmd_vel.linear.x)<=reset_lin_vel ) linear_velocity = 0; // reset integrator on "stop" command
+    if (cmd_vel.linear.x<0 ) linear_velocity *= -1.0; // HACK: the optical method does not support reversing yet
   }
+
+  // constrains
+  linear_velocity  = constrain(linear_velocity,  -max_linear_vel,  max_linear_vel);
+  angular_velocity = constrain(angular_velocity, -max_angular_vel, max_angular_vel);
 
   // integrating heading
   yaw += (angular_velocity+prev_angular_velocity) * dt/2;

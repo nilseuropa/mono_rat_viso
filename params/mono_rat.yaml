@@ -8,10 +8,10 @@ linear_lowpass_cutoff:    15.0 # Hz
 angular_lowpass_cutoff:  100.0 # Hz
 
 # camera
-camera_topic: head_camera/image_rect
+camera_topic:      head_camera/image_rect
 camera_info_topic: head_camera/camera_info
 subscribe_to_info: false
-image_width: 640 # provide if subscribe_to_info is set to false
+image_width: 640   # provide if subscribe_to_info is set to false
 camera_fov_degrees: 75.0 # horizontal field of view
 
 # region of interest for translation
@@ -27,10 +27,10 @@ rot_roi_x_max: 640  # bottom right corner
 rot_roi_y_max: 480
 
 # integration and scale
-reset_by_cmd_vel: true  # cmd_vel resets and constrains integrator
-max_angular_vel: 2.0    # base maximum velocities used if reset_by_cmd_vel is set to false
-max_linear_vel:  0.35
-reset_lin_vel: 0.05     # resets integrator belov threhsold if reset_by_cmd_vel is set to false
+reset_by_cmd_vel: true     # cmd_vel resets and constrains integrator
+max_angular_vel: 2.0       # clamp constraints for base maximum velocities
+max_linear_vel:  0.35      #
+reset_lin_vel:   0.05      # resets integrator below threshold if reset_by_cmd_vel is set to false
 
 vtrans_lin_scale: 220   # scale of linear velocity when there is no rotation
 vtrans_rot_scale: 200   # scale of linear velocity when there is rotation
